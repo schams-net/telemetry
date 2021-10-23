@@ -1,0 +1,79 @@
+#!/bin/bash
+# ==============================================================================
+# Pending Restart
+# https://schams.net/telemetry
+# ...
+# ==============================================================================
+
+CURRENTSCRIPT="$0"
+
+CONFIGURATION_FILE="/etc/default/telemetry"
+TELEMETRY_API_ACTION="PendingRestart"
+
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
+[ -f "${CONFIGURATION_FILE}" ] && . "${CONFIGURATION_FILE}"
+
+# Check if module "pending restart" is enabled
+if [ ! "${TELEMETRY_REPORT_PENDING_RESTART}" = "true" ]; then
+	exit 0
+fi
+
+# Check if required commands are available and executable
+# @TODO check and update
+COMMANDS_REQUIRED="base64 curl hostname sed tr wc"
+for COMMAND in ${COMMANDS_REQUIRED}; do
+	TEMP=$(which ${COMMAND})
+	if [ $? -ne 0 -o "${TEMP}" = "" ]; then
+		echo "Error: \"${COMMAND}\" not installed or not executable."
+		exit 1
+	elif [ ! -x ${TEMP} ]; then
+		echo "Error: \"${COMMAND}\" not executable."
+		exit 1
+	fi
+done
+
+# Check if API endpoint is configured properly
+if [ "${TELEMETRY_API_ENDPOINT}" = "" -o "${TELEMETRY_API_VERSION}" = "" ]; then
+	echo "Error: Telemetry API endpoint not set. Check configuration file \"${CONFIGURATION_FILE}\"."
+	exit 1
+fi
+
+HOSTNAME_SHORT=$(hostname --short)
+HOSTNAME_LONG=$(hostname --long)
+
+CURL_OPTIONS=""
+
+# Add ClientID and API key to the HTTP request if available
+if [ ! "${TELEMETRY_CLIENT_ID}" = "" ]; then
+	TELEMETRY_CLIENT_ID=$(echo "${TELEMETRY_CLIENT_ID}" | sed 's/[^a-zA-Z0-9]//g')
+	CURL_OPTIONS="${CURL_OPTIONS} --header \"x-client-id: ${TELEMETRY_CLIENT_ID}\""
+fi
+if [ ! "${TELEMETRY_API_KEY}" = "" ]; then
+	TELEMETRY_API_KEY=$(echo "${TELEMETRY_API_KEY}" | sed 's/[^a-zA-Z0-9]//g')
+	CURL_OPTIONS="${CURL_OPTIONS} --header \"x-api-key: ${TELEMETRY_API_KEY}\""
+fi
+
+#CURL_OPTIONS="${CURL_OPTIONS} --silent --show-error --request POST --header 'Content-type: application/json'"
+
+# ------------------------------------------------------------------------------
+# ...
+
+if [ -e /var/run/reboot-required -o -e /var/run/reboot-required.pkgs ]; then
+	NUMBER_OF_PACKAGES=0
+	PACKAGE_LIST=""
+	if [ -r /var/run/reboot-required.pkgs ]; then
+		NUMBER_OF_PACKAGES=$(cat /var/run/reboot-required.pkgs | wc --line)
+		PACKAGE_LIST=$(cat /var/run/reboot-required.pkgs | tr "\n" "|" | sed 's/|$//g' | base64)
+	fi
+
+	STATUS="{\"PackageList\": \"${PACKAGE_LIST}\",\"NumberOfPackages\": ${NUMBER_OF_PACKAGES}}"
+
+	#curl --silent --request POST --header 'Content-type: application/json' --data "${STATUS}" ${TELEMETRY_API_ENDPOINT} > /dev/null
+	#curl ${CURL_OPTIONS} --silent --request POST --header 'Content-type: application/json' --data "${STATUS}" ${TELEMETRY_API_ENDPOINT}/${TELEMETRY_API_VERSION}/${TELEMETRY_API_ACTION}
+	echo "${TELEMETRY_API_ENDPOINT}/${TELEMETRY_API_VERSION}/${TELEMETRY_API_ACTION}"
+	echo "${STATUS}"
+
+fi
+
+# ==============================================================================
+# EOF

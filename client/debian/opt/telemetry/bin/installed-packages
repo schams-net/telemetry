@@ -1,0 +1,82 @@
+#!/bin/bash
+# ==============================================================================
+# Installed Packages
+# https://schams.net/telemetry
+# ...
+# ==============================================================================
+
+CURRENTSCRIPT="$0"
+
+CONFIGURATION_FILE="/etc/default/telemetry"
+TELEMETRY_API_ACTION="DebianPackages"
+
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
+[ -f "${CONFIGURATION_FILE}" ] && . "${CONFIGURATION_FILE}"
+
+# Check if module "report packages" is enabled
+if [ ! "${TELEMETRY_REPORT_PACKAGES}" = "true" ]; then
+	exit 0
+fi
+
+# Check if required commands are available and executable
+COMMANDS_REQUIRED="base64 curl dpkg-query jq hostname md5sum sed sort wc"
+for COMMAND in ${COMMANDS_REQUIRED}; do
+	TEMP=$(which ${COMMAND})
+	if [ $? -ne 0 -o "${TEMP}" = "" ]; then
+		echo "Error: \"${COMMAND}\" not installed or not executable."
+		exit 1
+	elif [ ! -x ${TEMP} ]; then
+		echo "Error: \"${COMMAND}\" not executable."
+		exit 1
+	fi
+done
+
+# Check if API endpoint is configured properly
+if [ "${TELEMETRY_API_ENDPOINT}" = "" -o "${TELEMETRY_API_VERSION}" = "" ]; then
+	echo "Error: Telemetry API endpoint not set. Check configuration file \"${CONFIGURATION_FILE}\"."
+	exit 1
+fi
+
+HOSTNAME_SHORT=$(hostname --short)
+HOSTNAME_LONG=$(hostname --long)
+
+CURL_OPTIONS=""
+
+# Add ClientID and API key to the HTTP request if available
+if [ ! "${TELEMETRY_CLIENT_ID}" = "" ]; then
+	TELEMETRY_CLIENT_ID=$(echo "${TELEMETRY_CLIENT_ID}" | sed 's/[^a-zA-Z0-9]//g')
+	CURL_OPTIONS="${CURL_OPTIONS} --header \"x-client-id: ${TELEMETRY_CLIENT_ID}\""
+fi
+if [ ! "${TELEMETRY_API_KEY}" = "" ]; then
+	TELEMETRY_API_KEY=$(echo "${TELEMETRY_API_KEY}" | sed 's/[^a-zA-Z0-9]//g')
+	CURL_OPTIONS="${CURL_OPTIONS} --header \"x-api-key: ${TELEMETRY_API_KEY}\""
+fi
+
+#CURL_OPTIONS="${CURL_OPTIONS} --silent --show-error --request POST --header 'Content-type: application/json'"
+
+# ------------------------------------------------------------------------------
+# ...
+
+#dpkg-query --show --showformat '${Package}|${Version}|${db:Status-Status}\n'
+
+PACKAGELIST=$(dpkg-query --show --showformat '${Package}|${Version}|${db:Status-Status}|${db-fsys:Last-Modified}\n' | sort)
+NUMBER_OF_PACKAGES=$(echo "${PACKAGELIST}" | wc --line)
+
+DATA_BASE64=$(echo "${PACKAGELIST}" | base64 --wrap 0)
+DATA_MD5HASH=$(echo "${DATA_BASE64}" | md5sum | cut -f 1 -d ' ')
+DATA_SIZE=$(echo "${DATA_BASE64}" | wc -c)
+
+#apt-get -s upgrade | grep -i security | egrep "^Inst" | grep -v 'Debian\:' | perl -p -e 's/^Inst\s+([^\s]*?)\s+(\[[^\[]*\]).*\n$/$1\\\n/'
+
+#STATUS="{\"Checksum\": \"${DATA_MD5HASH}\",\"NumberOfPackages\": ${NUMBER_OF_PACKAGES}}"
+STATUS="{\"PackageList\":\"${DATA_BASE64}\",\"Checksum\":\"${DATA_MD5HASH}\",\"NumberOfPackages\":${NUMBER_OF_PACKAGES}}"
+
+#echo $(cat "${JOB_DETAILS_FILE}")' '$(cat "/root/Notifications.json") | jq --slurp --compact-output add > /root/InstanceAvailable.json
+
+#curl --silent --request POST --header 'Content-type: application/json' --data "${STATUS}" ${TELEMETRY_API_ENDPOINT} > /dev/null
+#curl ${CURL_OPTIONS} --silent --request POST --header 'Content-type: application/json' --data "${STATUS}" ${TELEMETRY_API_ENDPOINT}/${TELEMETRY_API_VERSION}/${TELEMETRY_API_ACTION}
+echo "${TELEMETRY_API_ENDPOINT}/${TELEMETRY_API_VERSION}/${TELEMETRY_API_ACTION}"
+echo "${STATUS}"
+
+# ==============================================================================
+# EOF

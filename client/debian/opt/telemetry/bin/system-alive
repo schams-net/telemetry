@@ -1,0 +1,95 @@
+#!/bin/bash
+# ==============================================================================
+# System Alive
+# https://schams.net/telemetry
+# ...
+# ==============================================================================
+
+CURRENTSCRIPT="$0"
+
+CONFIGURATION_FILE="/etc/default/telemetry"
+TELEMETRY_API_ACTION="SystemAlive"
+
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
+[ -f "${CONFIGURATION_FILE}" ] && . "${CONFIGURATION_FILE}"
+
+# Check if module "pending updates" is enabled
+if [ ! "${TELEMETRY_REPORT_SYSTEM_ALIVE}" = "true" ]; then
+	exit 0
+fi
+
+# Check if required commands are available and executable
+# @TODO check and update
+COMMANDS_REQUIRED="base64 curl date hostname"
+for COMMAND in ${COMMANDS_REQUIRED}; do
+	TEMP=$(which ${COMMAND})
+	if [ $? -ne 0 -o "${TEMP}" = "" ]; then
+		echo "Error: \"${COMMAND}\" not installed or not executable."
+		exit 1
+	elif [ ! -x ${TEMP} ]; then
+		echo "Error: \"${COMMAND}\" not executable."
+		exit 1
+	fi
+done
+
+# Check if API endpoint is configured properly
+if [ "${TELEMETRY_API_ENDPOINT}" = "" -o "${TELEMETRY_API_VERSION}" = "" ]; then
+	echo "Error: Telemetry API endpoint not set. Check configuration file \"${CONFIGURATION_FILE}\"."
+	exit 1
+fi
+
+HOSTNAME_SHORT=$(hostname --short)
+HOSTNAME_LONG=$(hostname --long)
+
+CURL_OPTIONS=""
+
+# Add ClientID and API key to the HTTP request if available
+if [ ! "${TELEMETRY_CLIENT_ID}" = "" ]; then
+	TELEMETRY_CLIENT_ID=$(echo "${TELEMETRY_CLIENT_ID}" | sed 's/[^a-zA-Z0-9]//g')
+	CURL_OPTIONS="${CURL_OPTIONS} --header \"x-client-id: ${TELEMETRY_CLIENT_ID}\""
+fi
+if [ ! "${TELEMETRY_API_KEY}" = "" ]; then
+	TELEMETRY_API_KEY=$(echo "${TELEMETRY_API_KEY}" | sed 's/[^a-zA-Z0-9]//g')
+	CURL_OPTIONS="${CURL_OPTIONS} --header \"x-api-key: ${TELEMETRY_API_KEY}\""
+fi
+
+#CURL_OPTIONS="${CURL_OPTIONS} --silent --show-error --request POST --header 'Content-type: application/json'"
+
+# ------------------------------------------------------------------------------
+# ...
+
+TEMP=$(which lsb_release)
+if [ ! "${TEMP}" = "" ]; then
+	LSB_INFORMATION=$(lsb_release --all 2>&1 | sed 's/[[:space:]]\{1,\}/ /g' | base64 --wrap 0)
+	LSB_INFORMATION="\"LinuxStandardBaseInformation\":\"${LSB_INFORMATION}\","
+	DATA="${DATA}\n${LSB_INFORMATION}"
+fi
+
+if [ -r /etc/os-release ]; then
+	OS_RELEASE=$(cat /etc/os-release | base64 --wrap 0)
+	OS_RELEASE="\"OperatingSystemRelease\":\"${OS_RELEASE}\","
+	DATA="${DATA}\n${OS_RELEASE}"
+fi
+
+TEMP=$(which bc)
+if [ ! "${TEMP}" = "" ]; then
+	UPTIME=$(echo "($(date +"%s") - $(date +"%s" -d "$(uptime -s)"))" | bc)
+	UPTIME="\"Uptime\":\"${UPTIME}\","
+	DATA="${DATA}\n${OS_RELEASE}"
+fi
+
+if [ ! "${HOSTNAME_LONG}" = "" ]; then
+	HOSTNAME="\"Hostname\":\"${HOSTNAME_LONG}\","
+	DATA="${DATA}\n${HOSTNAME}"
+fi
+
+DATA=$(echo -e "${DATA}" | sed 's/[[:space:]]\{1,\}/ /g' | tr -d '\n' | sed 's/,$//g')
+STATUS="{${DATA}}"
+
+#curl --silent --request POST --header 'Content-type: application/json' --data "${STATUS}" ${TELEMETRY_API_ENDPOINT} > /dev/null
+#curl ${CURL_OPTIONS} --silent --request POST --header 'Content-type: application/json' --data "${STATUS}" ${TELEMETRY_API_ENDPOINT}/${TELEMETRY_API_VERSION}/${TELEMETRY_API_ACTION}
+echo "${TELEMETRY_API_ENDPOINT}/${TELEMETRY_API_VERSION}/${TELEMETRY_API_ACTION}"
+echo "${STATUS}"
+
+# ==============================================================================
+# EOF
