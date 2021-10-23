@@ -1,1 +1,3 @@
+aws/*
+docs/*
 client/*/opt/etc/default/telemetry
